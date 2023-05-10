@@ -1,0 +1,15 @@
+[package]
+name = "garnish-web-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.147", features = ["derive"] }
+hypertext-garnish = { path = "../hypertext-garnish"}
+serde-garnish = { path = "../serde-garnish"}
+garnish_lang_runtime = { path = "../garnish-core/runtime"}
+garnish_lang_compiler = { path = "../garnish-core/compiler"}
+garnish_data = { path = "../garnish-core/data"}
+garnish_traits = { path = "../garnish-core/traits"}
