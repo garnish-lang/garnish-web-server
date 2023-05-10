@@ -1,0 +1,15 @@
+;Node::Element (
+    ;tag = "html"
+    ;children = (
+        (
+            ;Node::Element (
+                ;tag = "body"
+                ;children = (
+                    (
+                        ;Node::Text "Hello, Web!"
+                    )
+                )
+            )
+        )
+    )
+)
