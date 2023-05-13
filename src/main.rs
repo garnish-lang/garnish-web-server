@@ -2,22 +2,36 @@ use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use axum::extract::State;
+use axum::response::Response;
 use axum::{routing::get, Router};
 use clap::Parser;
+use hyper::StatusCode;
+use log::{debug, error, info, trace, warn};
+use serde::Deserialize;
 
 use garnish_data::SimpleRuntimeData;
+use garnish_lang_compiler::{build_with_data, lex, parse};
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
+use garnish_traits::{
+    EmptyContext, GarnishLangRuntimeData, GarnishLangRuntimeState, GarnishRuntime,
+};
+use hypertext_garnish::Node;
+use serde_garnish::GarnishDataDeserializer;
 
 use crate::args::ServerArgs;
 
 mod args;
 
-use log::{debug, error, info, warn};
-use garnish_lang_compiler::{build_with_data, lex, parse};
-use garnish_traits::GarnishLangRuntimeData;
-
 pub const INCLUDE_PATTERN_DEFAULT: &str = "**/*.garnish";
+
+#[derive(Clone)]
+struct SharedState {
+    base_runtime: SimpleGarnishRuntime<SimpleRuntimeData>,
+    route_mapping: HashMap<String, usize>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -67,10 +81,14 @@ async fn main() -> Result<(), String> {
         .map(|g| g.unwrap())
         .collect::<Vec<PathBuf>>();
 
-    let runtime = create_runtime(paths, serve_path_str.as_str())?;
+    let (route_mapping, runtime) = create_runtime(paths, serve_path_str.as_str())?;
+    let state = Arc::new(SharedState {
+        route_mapping,
+        base_runtime: runtime,
+    });
 
     // build our application with a single route
-    let app = Router::new().route("/", get(|| async { "Hello, World!" }));
+    let app = Router::new().route("/", get(handler)).with_state(state);
 
     // run it with hyper on localhost:3000
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -81,10 +99,77 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
+async fn handler(State(state): State<Arc<SharedState>>) -> Response<String> {
+    let mut runtime = state.base_runtime.clone();
+
+    trace!("Request for route \"index\"");
+    match state.route_mapping.get("index") {
+        None => {
+            info!("No garnish mapping found for route \"index\"");
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(String::new())
+                .unwrap();
+        }
+        Some(start) => {
+            match runtime.get_data_mut().set_instruction_cursor(*start) {
+                Err(e) => {
+                    error!("Failed to set instructor cursor: {:?}", e);
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(String::new())
+                        .unwrap();
+                }
+                Ok(()) => (),
+            }
+
+            loop {
+                match runtime.execute_current_instruction::<EmptyContext>(None) {
+                    Err(e) => {
+                        error!("Failed to execute: {:?}", e);
+                        return Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(String::new())
+                            .unwrap();
+                    }
+                    Ok(data) => match data.get_state() {
+                        GarnishLangRuntimeState::Running => (),
+                        GarnishLangRuntimeState::End => break,
+                    },
+                }
+            }
+
+            let mut deserializer = GarnishDataDeserializer::new(runtime.get_data_mut());
+            let result = match Node::deserialize(&mut deserializer) {
+                Err(e) => {
+                    error!("Failed to deserialize garnish data to HTML: {:?}", e.message());
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(String::new())
+                        .unwrap();
+                }
+                Ok(n) => n,
+            };
+
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/html")
+                .body(result.to_string())
+                .unwrap();
+        }
+    }
+}
+
 fn create_runtime(
     paths: Vec<PathBuf>,
     base_path: &str,
-) -> Result<SimpleGarnishRuntime<SimpleRuntimeData>, String> {
+) -> Result<
+    (
+        HashMap<String, usize>,
+        SimpleGarnishRuntime<SimpleRuntimeData>,
+    ),
+    String,
+> {
     let mut data = SimpleRuntimeData::new();
 
     // maps expected http route to index of expression that will be executed when that route is requested
@@ -117,5 +202,5 @@ fn create_runtime(
         route_to_expression.insert(route, execution_start);
     }
 
-    Ok(SimpleGarnishRuntime::new(data))
+    Ok((route_to_expression, SimpleGarnishRuntime::new(data)))
 }

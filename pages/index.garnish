@@ -7,9 +7,9 @@
                 ;children = (
                     (
                         ;Node::Text "Hello, Web!"
-                    )
+                    ),
                 )
             )
-        )
+        ),
     )
 )
