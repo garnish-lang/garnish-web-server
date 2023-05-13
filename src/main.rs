@@ -13,7 +13,7 @@ use crate::args::ServerArgs;
 
 mod args;
 
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use garnish_lang_compiler::{build_with_data, lex, parse};
 use garnish_traits::GarnishLangRuntimeData;
 
@@ -57,6 +57,10 @@ async fn main() -> Result<(), String> {
         .or_else(|e| Err(e.to_string()))?
         .into_iter()
         .partition(|g| g.is_ok());
+
+    for e in errs {
+        error!("Error during glob: {:?}", e);
+    }
 
     let paths = oks
         .into_iter()
