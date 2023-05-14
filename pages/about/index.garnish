@@ -1,0 +1,30 @@
+;Node::Element (
+    ;tag = "html"
+    ;children = (
+        (
+            ;Node::Element (
+                ;tag = "head"
+                ;children = (
+                    (
+                        ;Node::Element (
+                            ;tag = "title"
+                            ;children = (
+                                ( ;Node::Text "About" ),
+                            )
+                        )
+                    ),
+                )
+            )
+        ),
+        (
+            ;Node::Element (
+                ;tag = "body"
+                ;children = (
+                    (
+                        ;Node::Text "All About Me"
+                    ),
+                )
+            )
+        ),
+    )
+)
