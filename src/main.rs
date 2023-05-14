@@ -4,7 +4,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::State;
+use axum::http::Request;
 use axum::response::Response;
 use axum::{routing::get, Router};
 use clap::Parser;
@@ -88,7 +90,10 @@ async fn main() -> Result<(), String> {
     });
 
     // build our application with a single route
-    let app = Router::new().route("/", get(handler)).with_state(state);
+    let app = Router::new()
+        .route("/", get(handler))
+        .route("/*path", get(handler))
+        .with_state(state);
 
     // run it with hyper on localhost:3000
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -99,17 +104,35 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-async fn handler(State(state): State<Arc<SharedState>>) -> Response<String> {
+async fn handler(
+    State(state): State<Arc<SharedState>>,
+    request: Request<Body>,
+) -> Response<String> {
+    run_page(state, request.uri().path()).await
+}
+
+async fn run_page(state: Arc<SharedState>, page: &str) -> Response<String> {
     let mut runtime = state.base_runtime.clone();
 
-    trace!("Request for route \"index\"");
-    match state.route_mapping.get("index") {
+    let page = page.trim().trim_matches('/').trim();
+    let alt = match page.is_empty() {
+        true => String::from("index"),
+        false => [page, "index"].join("/"),
+    };
+
+    info!("Request for route \"{}\"", page);
+    debug!("Checking mappings for \"{}\" and \"{}\"", page, alt);
+    return match state
+        .route_mapping
+        .get(page)
+        .or_else(|| state.route_mapping.get(&alt))
+    {
         None => {
-            info!("No garnish mapping found for route \"index\"");
-            return Response::builder()
+            info!("No garnish mapping found for route \"{}\"", page);
+            Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(String::new())
-                .unwrap();
+                .unwrap()
         }
         Some(start) => {
             match runtime.get_data_mut().set_instruction_cursor(*start) {
@@ -142,7 +165,10 @@ async fn handler(State(state): State<Arc<SharedState>>) -> Response<String> {
             let mut deserializer = GarnishDataDeserializer::new(runtime.get_data_mut());
             let result = match Node::deserialize(&mut deserializer) {
                 Err(e) => {
-                    error!("Failed to deserialize garnish data to HTML: {:?}", e.message());
+                    error!(
+                        "Failed to deserialize garnish data to HTML: {:?}",
+                        e.message()
+                    );
                     return Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .body(String::new())
@@ -151,13 +177,13 @@ async fn handler(State(state): State<Arc<SharedState>>) -> Response<String> {
                 Ok(n) => n,
             };
 
-            return Response::builder()
+            Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "text/html")
                 .body(result.to_string())
-                .unwrap();
+                .unwrap()
         }
-    }
+    };
 }
 
 fn create_runtime(
