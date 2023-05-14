@@ -108,13 +108,9 @@ async fn handler(
     State(state): State<Arc<SharedState>>,
     request: Request<Body>,
 ) -> Response<String> {
-    run_page(state, request.uri().path()).await
-}
-
-async fn run_page(state: Arc<SharedState>, page: &str) -> Response<String> {
     let mut runtime = state.base_runtime.clone();
 
-    let page = page.trim().trim_matches('/').trim();
+    let page = request.uri().path().trim().trim_matches('/').trim();
     let alt = match page.is_empty() {
         true => String::from("index"),
         false => [page, "index"].join("/"),
@@ -122,7 +118,7 @@ async fn run_page(state: Arc<SharedState>, page: &str) -> Response<String> {
 
     info!("Request for route \"{}\"", page);
     debug!("Checking mappings for \"{}\" and \"{}\"", page, alt);
-    return match state
+    match state
         .route_mapping
         .get(page)
         .or_else(|| state.route_mapping.get(&alt))
@@ -183,7 +179,7 @@ async fn run_page(state: Arc<SharedState>, page: &str) -> Response<String> {
                 .body(result.to_string())
                 .unwrap()
         }
-    };
+    }
 }
 
 fn create_runtime(
