@@ -13,9 +13,10 @@ use clap::Parser;
 use hyper::StatusCode;
 use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
+use garnish_annotations_collector::{Collector, Sink, TokenBlock};
 
 use garnish_data::SimpleRuntimeData;
-use garnish_lang_compiler::{build_with_data, lex, parse};
+use garnish_lang_compiler::{build_with_data, lex, parse, TokenType};
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
 use garnish_traits::{
     EmptyContext, GarnishLangRuntimeData, GarnishLangRuntimeState, GarnishRuntime,
@@ -206,7 +207,15 @@ fn create_runtime(
         debug!("Compiling file: {:?}", path.to_string_lossy().to_string());
 
         let file_text = fs::read_to_string(&path).or_else(|e| Err(e.to_string()))?;
-        let tokens = lex(&file_text)?;
+        // let tokens = lex(&file_text)?;
+
+        let collector = Collector::new(vec![
+            Sink::new("@Method").until_token(TokenType::Subexpression),
+            Sink::new("@Def").until_token(TokenType::Subexpression),
+        ]);
+
+        let blocks = collector.collect(&file_text)?;
+
         let parsed = parse(tokens)?;
         if parsed.get_nodes().is_empty() {
             warn!("No script found in file {:?}. Skipping.", &path);

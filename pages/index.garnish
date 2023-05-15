@@ -1,15 +1,33 @@
-;Node::Element (
-    ;tag = "html"
-    ;children = (
-        (
-            ;Node::Element (
-                ;tag = "body"
-                ;children = (
-                    (
-                        ;Node::Text "Hello, Web!"
-                    ),
+@Method GET {
+    make_page ~ "From GET"
+}
+
+@Method POST {
+    make_page ~ "From POST"
+}
+
+@Method PATCH {
+    make_page ~ "From PATCH"
+}
+
+@Method DELETE {
+    make_page ~ "From DELETE"
+}
+
+@Def make_page {
+    ;Node::Element (
+        ;tag = "html"
+        ;children = (
+            (
+                ;Node::Element (
+                    ;tag = "body"
+                    ;children = (
+                        (
+                            ;Node::Text $ ?> $ |> "Hello, Web!"
+                        ),
+                    )
                 )
-            )
-        ),
+            ),
+        )
     )
-)
+}
