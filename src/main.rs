@@ -13,13 +13,14 @@ use clap::Parser;
 use hyper::StatusCode;
 use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
-use garnish_annotations_collector::{Collector, Sink, TokenBlock};
 
+use garnish_annotations_collector::{Collector, Sink, TokenBlock};
 use garnish_data::SimpleRuntimeData;
-use garnish_lang_compiler::{build_with_data, lex, parse, TokenType};
+use garnish_lang_compiler::{build_with_data, lex, parse, LexerToken, TokenType};
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
 use garnish_traits::{
-    EmptyContext, GarnishLangRuntimeData, GarnishLangRuntimeState, GarnishRuntime,
+    EmptyContext, ExpressionDataType, GarnishLangRuntimeData, GarnishLangRuntimeState,
+    GarnishRuntime,
 };
 use hypertext_garnish::Node;
 use serde_garnish::GarnishDataDeserializer;
@@ -193,7 +194,7 @@ fn create_runtime(
     ),
     String,
 > {
-    let mut data = SimpleRuntimeData::new();
+    let mut runtime = SimpleGarnishRuntime::new(SimpleRuntimeData::new());
 
     // maps expected http route to index of expression that will be executed when that route is requested
     let mut route_to_expression = HashMap::new();
@@ -207,31 +208,205 @@ fn create_runtime(
         debug!("Compiling file: {:?}", path.to_string_lossy().to_string());
 
         let file_text = fs::read_to_string(&path).or_else(|e| Err(e.to_string()))?;
-        // let tokens = lex(&file_text)?;
 
-        let collector = Collector::new(vec![
+        let collector: Collector = Collector::new(vec![
             Sink::new("@Method").until_token(TokenType::Subexpression),
             Sink::new("@Def").until_token(TokenType::Subexpression),
         ]);
 
-        let blocks = collector.collect(&file_text)?;
+        let blocks: Vec<TokenBlock> = collector.collect_tokens(&file_text)?;
 
-        let parsed = parse(tokens)?;
+        let (root_blocks, annotation_blocks): (Vec<TokenBlock>, Vec<TokenBlock>) = blocks
+            .into_iter()
+            .partition(|b| b.annotation_text().is_empty());
+
+        let (method_blocks, def_blocks): (Vec<_>, Vec<_>) = annotation_blocks
+            .into_iter()
+            .partition(|b| b.annotation_text() == &"@Method".to_string());
+
+        for method in method_blocks {
+            let parsed = parse(method.tokens_owned())?;
+            if parsed.get_nodes().is_empty() {
+                warn!("Empty method annotation in {:?}", &path);
+                continue;
+            }
+
+            let index = runtime.get_data().get_jump_table_len();
+            build_with_data(
+                parsed.get_root(),
+                parsed.get_nodes().clone(),
+                runtime.get_data_mut(),
+            )?;
+            let execution_start = match runtime.get_data().get_jump_point(index) {
+                Some(i) => i,
+                None => Err(format!("No jump point found after building {:?}", &path))?,
+            };
+
+            // executing from this start should result in list with annotation parameters
+            match runtime.get_data_mut().set_instruction_cursor(execution_start) {
+                Err(e) => {
+                    error!(
+                        "Failed to set instructor cursor during annotation build: {:?}",
+                        e
+                    );
+                    continue;
+                }
+                Ok(()) => (),
+            }
+
+            loop {
+                match runtime.execute_current_instruction::<EmptyContext>(None) {
+                    Err(e) => {
+                        error!("Failure during annotation execution: {:?}", e);
+                        continue;
+                    }
+                    Ok(data) => match data.get_state() {
+                        GarnishLangRuntimeState::Running => (),
+                        GarnishLangRuntimeState::End => break,
+                    },
+                }
+            }
+
+            let value_ref = match runtime.get_data().get_current_value() {
+                None => {
+                    error!("No value after annotation execution. Expected value of type List.");
+                    continue;
+                }
+                Some(v) => v,
+            };
+
+            let (name, start) = match runtime.get_data().get_data_type(value_ref) {
+                Err(e) => {
+                    error!("Failed to retrieve value data type after annotation execution.");
+                    continue;
+                }
+                Ok(t) => match t {
+                    ExpressionDataType::List => {
+                        // check for 2 values in list
+                        let method_name = match runtime.get_data().get_list_item(value_ref, 0.into()) {
+                            Err(e) => {
+                                error!("Failed to retrieve list item 0 for annotation list value. {:?}", e);
+                                continue;
+                            }
+                            Ok(v) => match runtime.get_data().get_data_type(v) {
+                                Err(e) => {
+                                    error!("Failed to retrieve value data type for annotation list value.");
+                                    continue;
+                                }
+                                Ok(t) => match t {
+                                    ExpressionDataType::Symbol => {
+                                        match runtime.get_data().get_symbol(v) {
+                                            Err(e) => {
+                                                error!("No data found for annotation list value item 0");
+                                                continue;
+                                            }
+                                            Ok(s) => match runtime.get_data().get_symbols().get(&s) {
+                                                None => {
+                                                    error!("Symbol with value {} not found in data symbol table", s);
+                                                    continue;
+                                                }
+                                                Some(s) => s.clone()
+                                            }
+                                        }
+                                    }
+                                    ExpressionDataType::CharList => {
+                                        match runtime.get_data().get_data().get(v) {
+                                            None => {
+                                                error!("No data found for annotation list value item 0");
+                                                continue;
+                                            }
+                                            Some(s) => match s.as_char_list() {
+                                                Err(e) => {
+                                                    error!("Value stored in Character List slot {} could not be cast to Character List. {:?}", v, e);
+                                                    continue;
+                                                }
+                                                Ok(s) => s,
+                                            },
+                                        }
+                                    }
+                                    t => {
+                                        error!("Expected Character List or Symbol type as first parameter in annotation list value");
+                                        continue;
+                                    }
+                                },
+                            },
+                        };
+
+                        let execution_start = match runtime.get_data().get_list_item(value_ref, 1.into()) {
+                            Err(e) => {
+                                error!("Failed to retrieve list item 1 for annotation list value. {:?}", e);
+                                continue;
+                            }
+                            Ok(v) => match runtime.get_data().get_data_type(v) {
+                                Err(e) => {
+                                    error!("Failed to retrieve value data type for annotation list value.");
+                                    continue;
+                                }
+                                Ok(t) => match t {
+                                    ExpressionDataType::Expression => {
+                                        match runtime.get_data().get_expression(v) {
+                                            Err(e) => {
+                                                error!("No data found for annotation list value item 0");
+                                                continue;
+                                            }
+                                            Ok(s) => match runtime.get_data().get_jump_point(s) {
+                                                None => {
+                                                    error!("Symbol with value {} not found in data symbol table", s);
+                                                    continue;
+                                                }
+                                                Some(s) => s
+                                            },
+                                        }
+                                    }
+                                    t => {
+                                        error!("Expected Expression type as second parameter in annotation list value");
+                                        continue;
+                                    }
+                                },
+                            },
+                        };
+
+                        (method_name, execution_start)
+                    }
+                    t => {
+                        warn!(
+                            "Expected List data type after annotation execution. Found {:?}",
+                            t
+                        );
+                        continue;
+                    }
+                },
+            };
+
+            info!("Registering route: {}@{}", name, route);
+            route_to_expression.insert(format!("{}@{}", name, route), execution_start);
+        }
+
+        let root_tokens = root_blocks
+            .into_iter()
+            .flat_map(|b| b.tokens_owned())
+            .collect::<Vec<LexerToken>>();
+
+        let parsed = parse(root_tokens)?;
         if parsed.get_nodes().is_empty() {
-            warn!("No script found in file {:?}. Skipping.", &path);
+            debug!("No root script found in file {:?}. Skipping.", &path);
             continue;
         }
 
-        let index = data.get_jump_table_len();
-        build_with_data(parsed.get_root(), parsed.get_nodes().clone(), &mut data)?;
-        let execution_start = match data.get_jump_point(index) {
+        let index = runtime.get_data().get_jump_table_len();
+        build_with_data(
+            parsed.get_root(),
+            parsed.get_nodes().clone(),
+            runtime.get_data_mut(),
+        )?;
+        let execution_start = match runtime.get_data().get_jump_point(index) {
             Some(i) => i,
             None => Err(format!("No jump point found after building {:?}", &path))?,
         };
 
-        info!("Registering route: {:?}", route);
+        info!("Registering route: {}", route);
         route_to_expression.insert(route, execution_start);
     }
 
-    Ok((route_to_expression, SimpleGarnishRuntime::new(data)))
+    Ok((route_to_expression, runtime))
 }

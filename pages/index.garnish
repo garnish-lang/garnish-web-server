@@ -1,16 +1,16 @@
-@Method GET {
+@Method "GET" {
     make_page ~ "From GET"
 }
 
-@Method POST {
+@Method "POST" {
     make_page ~ "From POST"
 }
 
-@Method PATCH {
+@Method "PATCH" {
     make_page ~ "From PATCH"
 }
 
-@Method DELETE {
+@Method "DELETE" {
     make_page ~ "From DELETE"
 }
 
