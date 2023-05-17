@@ -26,8 +26,10 @@ use hypertext_garnish::Node;
 use serde_garnish::GarnishDataDeserializer;
 
 use crate::args::ServerArgs;
+use crate::context::WebContext;
 
 mod args;
+mod context;
 
 pub const INCLUDE_PATTERN_DEFAULT: &str = "**/*.garnish";
 
@@ -195,6 +197,7 @@ fn create_runtime(
     String,
 > {
     let mut runtime = SimpleGarnishRuntime::new(SimpleRuntimeData::new());
+    let mut context = WebContext::new();
 
     // maps expected http route to index of expression that will be executed when that route is requested
     let mut route_to_expression = HashMap::new();
@@ -224,7 +227,14 @@ fn create_runtime(
             .into_iter()
             .partition(|b| b.annotation_text() == &"@Method".to_string());
 
-        handle_method_annotations(method_blocks, &mut runtime, &path, &route, &mut route_to_expression)?;
+        handle_method_annotations(
+            method_blocks,
+            &mut runtime,
+            &path,
+            &route,
+            &mut route_to_expression,
+        )?;
+        handle_def_annotations(def_blocks, &mut runtime, &mut context, &path, &route)?;
 
         let root_tokens = root_blocks
             .into_iter()
@@ -255,12 +265,22 @@ fn create_runtime(
     Ok((route_to_expression, runtime))
 }
 
+fn handle_def_annotations(
+    blocks: Vec<TokenBlock>,
+    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    context: &mut WebContext,
+    path: &PathBuf,
+    route: &String,
+) -> Result<(), String> {
+    unimplemented!()
+}
+
 fn handle_method_annotations(
     blocks: Vec<TokenBlock>,
     runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
     path: &PathBuf,
     route: &String,
-    route_to_expression: &mut HashMap<String, usize>
+    route_to_expression: &mut HashMap<String, usize>,
 ) -> Result<(), String> {
     for method in blocks {
         let parsed = parse(method.tokens_owned())?;
@@ -281,12 +301,15 @@ fn handle_method_annotations(
         };
 
         // executing from this start should result in list with annotation parameters
-        match runtime.get_data_mut().set_instruction_cursor(execution_start) {
+        match runtime
+            .get_data_mut()
+            .set_instruction_cursor(execution_start)
+        {
             Err(e) => {
                 error!(
-                        "Failed to set instructor cursor during annotation build: {:?}",
-                        e
-                    );
+                    "Failed to set instructor cursor during annotation build: {:?}",
+                    e
+                );
                 continue;
             }
             Ok(()) => (),
@@ -313,107 +336,9 @@ fn handle_method_annotations(
             Some(v) => v,
         };
 
-        let (name, start) = match runtime.get_data().get_data_type(value_ref) {
-            Err(e) => {
-                error!("Failed to retrieve value data type after annotation execution.");
-                continue;
-            }
-            Ok(t) => match t {
-                ExpressionDataType::List => {
-                    // check for 2 values in list
-                    let method_name = match runtime.get_data().get_list_item(value_ref, 0.into()) {
-                        Err(e) => {
-                            error!("Failed to retrieve list item 0 for annotation list value. {:?}", e);
-                            continue;
-                        }
-                        Ok(v) => match runtime.get_data().get_data_type(v) {
-                            Err(e) => {
-                                error!("Failed to retrieve value data type for annotation list value.");
-                                continue;
-                            }
-                            Ok(t) => match t {
-                                ExpressionDataType::Symbol => {
-                                    match runtime.get_data().get_symbol(v) {
-                                        Err(e) => {
-                                            error!("No data found for annotation list value item 0");
-                                            continue;
-                                        }
-                                        Ok(s) => match runtime.get_data().get_symbols().get(&s) {
-                                            None => {
-                                                error!("Symbol with value {} not found in data symbol table", s);
-                                                continue;
-                                            }
-                                            Some(s) => s.clone()
-                                        }
-                                    }
-                                }
-                                ExpressionDataType::CharList => {
-                                    match runtime.get_data().get_data().get(v) {
-                                        None => {
-                                            error!("No data found for annotation list value item 0");
-                                            continue;
-                                        }
-                                        Some(s) => match s.as_char_list() {
-                                            Err(e) => {
-                                                error!("Value stored in Character List slot {} could not be cast to Character List. {:?}", v, e);
-                                                continue;
-                                            }
-                                            Ok(s) => s,
-                                        },
-                                    }
-                                }
-                                t => {
-                                    error!("Expected Character List or Symbol type as first parameter in annotation list value");
-                                    continue;
-                                }
-                            },
-                        },
-                    };
-
-                    let execution_start = match runtime.get_data().get_list_item(value_ref, 1.into()) {
-                        Err(e) => {
-                            error!("Failed to retrieve list item 1 for annotation list value. {:?}", e);
-                            continue;
-                        }
-                        Ok(v) => match runtime.get_data().get_data_type(v) {
-                            Err(e) => {
-                                error!("Failed to retrieve value data type for annotation list value.");
-                                continue;
-                            }
-                            Ok(t) => match t {
-                                ExpressionDataType::Expression => {
-                                    match runtime.get_data().get_expression(v) {
-                                        Err(e) => {
-                                            error!("No data found for annotation list value item 0");
-                                            continue;
-                                        }
-                                        Ok(s) => match runtime.get_data().get_jump_point(s) {
-                                            None => {
-                                                error!("Symbol with value {} not found in data symbol table", s);
-                                                continue;
-                                            }
-                                            Some(s) => s
-                                        },
-                                    }
-                                }
-                                t => {
-                                    error!("Expected Expression type as second parameter in annotation list value");
-                                    continue;
-                                }
-                            },
-                        },
-                    };
-
-                    (method_name, execution_start)
-                }
-                t => {
-                    warn!(
-                            "Expected List data type after annotation execution. Found {:?}",
-                            t
-                        );
-                    continue;
-                }
-            },
+        let (name, start) = match get_name_expression_annotation_parameters(runtime, value_ref) {
+            Err(_) => continue,
+            Ok((n, s)) => (n, s)
         };
 
         info!("Registering route: {}@{}", name, route);
@@ -421,4 +346,118 @@ fn handle_method_annotations(
     }
 
     Ok(())
+}
+
+fn get_name_expression_annotation_parameters(
+    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    value_ref: usize,
+) -> Result<(String, usize), ()> {
+    match runtime.get_data().get_data_type(value_ref) {
+        Err(e) => {
+            error!("Failed to retrieve value data type after annotation execution.");
+            Err(())
+        }
+        Ok(t) => match t {
+            ExpressionDataType::List => {
+                // check for 2 values in list
+                let method_name = match runtime.get_data().get_list_item(value_ref, 0.into()) {
+                    Err(e) => {
+                        error!(
+                            "Failed to retrieve list item 0 for annotation list value. {:?}",
+                            e
+                        );
+                        return Err(());
+                    }
+                    Ok(v) => match runtime.get_data().get_data_type(v) {
+                        Err(e) => {
+                            error!("Failed to retrieve value data type for annotation list value.");
+                            return Err(());
+                        }
+                        Ok(t) => match t {
+                            ExpressionDataType::Symbol => {
+                                match runtime.get_data().get_symbol(v) {
+                                    Err(e) => {
+                                        error!("No data found for annotation list value item 0");
+                                        return Err(());
+                                    }
+                                    Ok(s) => match runtime.get_data().get_symbols().get(&s) {
+                                        None => {
+                                            error!("Symbol with value {} not found in data symbol table", s);
+                                            return Err(());
+                                        }
+                                        Some(s) => s.clone(),
+                                    },
+                                }
+                            }
+                            ExpressionDataType::CharList => {
+                                match runtime.get_data().get_data().get(v) {
+                                    None => {
+                                        error!("No data found for annotation list value item 0");
+                                        return Err(());
+                                    }
+                                    Some(s) => match s.as_char_list() {
+                                        Err(e) => {
+                                            error!("Value stored in Character List slot {} could not be cast to Character List. {:?}", v, e);
+                                            return Err(());
+                                        }
+                                        Ok(s) => s,
+                                    },
+                                }
+                            }
+                            t => {
+                                error!("Expected Character List or Symbol type as first parameter in annotation list value");
+                                return Err(());
+                            }
+                        },
+                    },
+                };
+
+                let execution_start = match runtime.get_data().get_list_item(value_ref, 1.into()) {
+                    Err(e) => {
+                        error!(
+                            "Failed to retrieve list item 1 for annotation list value. {:?}",
+                            e
+                        );
+                        return Err(());
+                    }
+                    Ok(v) => match runtime.get_data().get_data_type(v) {
+                        Err(e) => {
+                            error!("Failed to retrieve value data type for annotation list value.");
+                            return Err(());
+                        }
+                        Ok(t) => match t {
+                            ExpressionDataType::Expression => {
+                                match runtime.get_data().get_expression(v) {
+                                    Err(e) => {
+                                        error!("No data found for annotation list value item 0");
+                                        return Err(());
+                                    }
+                                    Ok(s) => match runtime.get_data().get_jump_point(s) {
+                                        None => {
+                                            error!("Symbol with value {} not found in data symbol table", s);
+                                            return Err(());
+                                        }
+                                        Some(s) => s,
+                                    },
+                                }
+                            }
+                            t => {
+                                error!("Expected Expression type as second parameter in annotation list value");
+                                return Err(());
+                            }
+                        },
+                    },
+                };
+
+                Ok((method_name, execution_start))
+            }
+            t => {
+                warn!(
+                    "Expected List data type after annotation execution. Found {:?}",
+                    t
+                );
+                Err(())
+            }
+        },
+    }
 }
