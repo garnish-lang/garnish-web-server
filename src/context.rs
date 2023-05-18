@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use garnish_data::{DataError, SimpleRuntimeData};
 use garnish_traits::{GarnishLangRuntimeContext, GarnishLangRuntimeData, RuntimeError};
 
+#[derive(Debug, Clone)]
 pub struct WebContext {
     expression_map: HashMap<String, usize>,
 }
@@ -23,7 +24,7 @@ impl GarnishLangRuntimeContext<SimpleRuntimeData> for WebContext {
             Some(s) => match self.expression_map.get(s) {
                 None => Ok(false),
                 Some(i) => {
-                    data.add_expression(*i)?;
+                    data.add_expression(*i).and_then(|i| data.push_register(i))?;
                     Ok(true)
                 }
             }

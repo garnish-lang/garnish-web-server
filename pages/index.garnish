@@ -1,3 +1,5 @@
+make_page ~ "From Root"
+
 @Method "GET" {
     make_page ~ "From GET"
 }
@@ -14,20 +16,23 @@
     make_page ~ "From DELETE"
 }
 
-@Def make_page {
-    ;Node::Element (
-        ;tag = "html"
-        ;children = (
-            (
-                ;Node::Element (
-                    ;tag = "body"
-                    ;children = (
-                        (
-                            ;Node::Text $ ?> $ |> "Hello, Web!"
-                        ),
-                    )
-                )
-            ),
+@Def "make_page" {
+    element ~ "html" (
+        element ~ "body" (
+            element ~ "h1" (
+                text ~ ($ ?> $ |> "Hello, Web!")
+            )
         )
     )
+}
+
+@Def "element" {
+    ;Node::Element (
+        ;tag = $.0
+        ;children = ( $ ~ 1..<$.| )
+    )
+}
+
+@Def "text" {
+    ;Node::Text $
 }

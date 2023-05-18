@@ -9,6 +9,7 @@ use axum::extract::State;
 use axum::http::Request;
 use axum::response::Response;
 use axum::{routing::get, Router};
+use axum::routing::any;
 use clap::Parser;
 use hyper::StatusCode;
 use log::{debug, error, info, trace, warn};
@@ -36,6 +37,7 @@ pub const INCLUDE_PATTERN_DEFAULT: &str = "**/*.garnish";
 #[derive(Clone)]
 struct SharedState {
     base_runtime: SimpleGarnishRuntime<SimpleRuntimeData>,
+    context: WebContext,
     route_mapping: HashMap<String, usize>,
 }
 
@@ -63,6 +65,8 @@ async fn main() -> Result<(), String> {
         Some(s) => s.to_string(),
     };
 
+    debug!("Serving from path: {}", serve_path_str);
+
     serve_path.push(INCLUDE_PATTERN_DEFAULT);
 
     let glob_pattern = match serve_path.to_str() {
@@ -87,16 +91,17 @@ async fn main() -> Result<(), String> {
         .map(|g| g.unwrap())
         .collect::<Vec<PathBuf>>();
 
-    let (route_mapping, runtime) = create_runtime(paths, serve_path_str.as_str())?;
+    let (route_mapping, runtime, context) = create_runtime(paths, serve_path_str.as_str())?;
     let state = Arc::new(SharedState {
         route_mapping,
         base_runtime: runtime,
+        context,
     });
 
     // build our application with a single route
     let app = Router::new()
-        .route("/", get(handler))
-        .route("/*path", get(handler))
+        .route("/", any(handler))
+        .route("/*path", any(handler))
         .with_state(state);
 
     // run it with hyper on localhost:3000
@@ -113,19 +118,27 @@ async fn handler(
     request: Request<Body>,
 ) -> Response<String> {
     let mut runtime = state.base_runtime.clone();
+    let mut context = state.context.clone();
 
     let page = request.uri().path().trim().trim_matches('/').trim();
-    let alt = match page.is_empty() {
+    let page_index = match page.is_empty() {
         true => String::from("index"),
         false => [page, "index"].join("/"),
     };
+    let page_method = format!("{}@{}", request.method(), page);
+    let page_index_method = format!("{}@{}", request.method(), page_index);
+
+    let options = [page_method, page_index_method, page.into(), page_index];
 
     info!("Request for route \"{}\"", page);
-    debug!("Checking mappings for \"{}\" and \"{}\"", page, alt);
-    match state
-        .route_mapping
-        .get(page)
-        .or_else(|| state.route_mapping.get(&alt))
+    debug!("Checking options: {:?}", options);
+
+    // find first options that is in route mapping
+    // then get that option
+    match options
+        .iter()
+        .find(|o| state.route_mapping.contains_key(*o))
+        .and_then(|s| state.route_mapping.get(s))
     {
         None => {
             info!("No garnish mapping found for route \"{}\"", page);
@@ -147,7 +160,7 @@ async fn handler(
             }
 
             loop {
-                match runtime.execute_current_instruction::<EmptyContext>(None) {
+                match runtime.execute_current_instruction(Some(&mut context)) {
                     Err(e) => {
                         error!("Failed to execute: {:?}", e);
                         return Response::builder()
@@ -162,12 +175,14 @@ async fn handler(
                 }
             }
 
+            debug!("Result: {}", runtime.get_data().display_current_value());
             let mut deserializer = GarnishDataDeserializer::new(runtime.get_data_mut());
             let result = match Node::deserialize(&mut deserializer) {
                 Err(e) => {
                     error!(
-                        "Failed to deserialize garnish data to HTML: {:?}",
-                        e.message()
+                        "Failed to deserialize garnish data to HTML: {:?}{:?}",
+                        e.message(),
+                        e
                     );
                     return Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -193,6 +208,7 @@ fn create_runtime(
     (
         HashMap<String, usize>,
         SimpleGarnishRuntime<SimpleRuntimeData>,
+        WebContext,
     ),
     String,
 > {
@@ -234,7 +250,7 @@ fn create_runtime(
             &route,
             &mut route_to_expression,
         )?;
-        handle_def_annotations(def_blocks, &mut runtime, &mut context, &path, &route)?;
+        handle_def_annotations(def_blocks, &mut runtime, &mut context, &path)?;
 
         let root_tokens = root_blocks
             .into_iter()
@@ -262,7 +278,7 @@ fn create_runtime(
         route_to_expression.insert(route, execution_start);
     }
 
-    Ok((route_to_expression, runtime))
+    Ok((route_to_expression, runtime, context))
 }
 
 fn handle_def_annotations(
@@ -270,9 +286,21 @@ fn handle_def_annotations(
     runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
     context: &mut WebContext,
     path: &PathBuf,
-    route: &String,
 ) -> Result<(), String> {
-    unimplemented!()
+    for def in blocks {
+        let (name, start) = match build_and_get_parameters(def.tokens_owned(), runtime, path) {
+            Err(s) => {
+                error!("{}", s);
+                continue;
+            },
+            Ok((n, s)) => (n, s),
+        };
+
+        debug!("Found method: {}", name);
+        context.insert_expression(name, start);
+    }
+
+    Ok(())
 }
 
 fn handle_method_annotations(
@@ -283,69 +311,86 @@ fn handle_method_annotations(
     route_to_expression: &mut HashMap<String, usize>,
 ) -> Result<(), String> {
     for method in blocks {
-        let parsed = parse(method.tokens_owned())?;
-        if parsed.get_nodes().is_empty() {
-            warn!("Empty method annotation in {:?}", &path);
-            continue;
-        }
-
-        let index = runtime.get_data().get_jump_table_len();
-        build_with_data(
-            parsed.get_root(),
-            parsed.get_nodes().clone(),
-            runtime.get_data_mut(),
-        )?;
-        let execution_start = match runtime.get_data().get_jump_point(index) {
-            Some(i) => i,
-            None => Err(format!("No jump point found after building {:?}", &path))?,
-        };
-
-        // executing from this start should result in list with annotation parameters
-        match runtime
-            .get_data_mut()
-            .set_instruction_cursor(execution_start)
-        {
-            Err(e) => {
-                error!(
-                    "Failed to set instructor cursor during annotation build: {:?}",
-                    e
-                );
-                continue;
-            }
-            Ok(()) => (),
-        }
-
-        loop {
-            match runtime.execute_current_instruction::<EmptyContext>(None) {
-                Err(e) => {
-                    error!("Failure during annotation execution: {:?}", e);
-                    continue;
-                }
-                Ok(data) => match data.get_state() {
-                    GarnishLangRuntimeState::Running => (),
-                    GarnishLangRuntimeState::End => break,
-                },
-            }
-        }
-
-        let value_ref = match runtime.get_data().get_current_value() {
-            None => {
-                error!("No value after annotation execution. Expected value of type List.");
-                continue;
-            }
-            Some(v) => v,
-        };
-
-        let (name, start) = match get_name_expression_annotation_parameters(runtime, value_ref) {
+        let (name, start) = match build_and_get_parameters(method.tokens_owned(), runtime, path) {
             Err(_) => continue,
-            Ok((n, s)) => (n, s)
+            Ok((n, s)) => (n, s),
+        };
+
+        // http method expressions use direct jump point instead of jump table reference that is stored in the Expression data type
+        let start = match runtime.get_data().get_jump_point(start) {
+            None => {
+                error!("Jump table reference not found. Searching for {}", start);
+                return Err("Expression value not found in jump table".into());
+            }
+            Some(s) => s,
         };
 
         info!("Registering route: {}@{}", name, route);
-        route_to_expression.insert(format!("{}@{}", name, route), execution_start);
+        route_to_expression.insert(format!("{}@{}", name, route), start);
     }
 
     Ok(())
+}
+
+fn build_and_get_parameters(
+    tokens: Vec<LexerToken>,
+    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    path: &PathBuf,
+) -> Result<(String, usize), String> {
+    let parsed = parse(tokens)?;
+    if parsed.get_nodes().is_empty() {
+        warn!("Empty method annotation in {:?}", &path);
+        return Err("Empty annotation".into());
+    }
+
+    let index = runtime.get_data().get_jump_table_len();
+    build_with_data(
+        parsed.get_root(),
+        parsed.get_nodes().clone(),
+        runtime.get_data_mut(),
+    )?;
+    let execution_start = match runtime.get_data().get_jump_point(index) {
+        Some(i) => i,
+        None => Err(format!("No jump point found after building {:?}", &path))?,
+    };
+
+    // executing from this start should result in list with annotation parameters
+    match runtime
+        .get_data_mut()
+        .set_instruction_cursor(execution_start)
+    {
+        Err(e) => {
+            error!(
+                "Failed to set instructor cursor during annotation build: {:?}",
+                e
+            );
+            return Err("Couldn't set cursor".into());
+        }
+        Ok(()) => (),
+    }
+
+    loop {
+        match runtime.execute_current_instruction::<EmptyContext>(None) {
+            Err(e) => {
+                error!("Failure during annotation execution: {:?}", e);
+                continue;
+            }
+            Ok(data) => match data.get_state() {
+                GarnishLangRuntimeState::Running => (),
+                GarnishLangRuntimeState::End => break,
+            },
+        }
+    }
+
+    let value_ref = match runtime.get_data().get_current_value() {
+        None => {
+            error!("No value after annotation execution. Expected value of type List.");
+            return Err("No value after execution".into());
+        }
+        Some(v) => v,
+    };
+
+    get_name_expression_annotation_parameters(runtime, value_ref).or(Err("".into()))
 }
 
 fn get_name_expression_annotation_parameters(
@@ -432,13 +477,7 @@ fn get_name_expression_annotation_parameters(
                                         error!("No data found for annotation list value item 0");
                                         return Err(());
                                     }
-                                    Ok(s) => match runtime.get_data().get_jump_point(s) {
-                                        None => {
-                                            error!("Symbol with value {} not found in data symbol table", s);
-                                            return Err(());
-                                        }
-                                        Some(s) => s,
-                                    },
+                                    Ok(s) => s,
                                 }
                             }
                             t => {
