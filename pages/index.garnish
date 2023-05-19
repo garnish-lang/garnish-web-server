@@ -17,13 +17,25 @@ make_page ~ "From Root"
 }
 
 @Def "make_page" {
-    element ~ "html" (
-        element ~ "body" (
-            element ~ "h1" (
+    html ~ (
+        body ~ (
+            h1 ~ (
                 text ~ ($ ?> $ |> "Hello, Web!")
             )
         )
     )
+}
+
+@Def "html" {
+    element ~ "html" <> $
+}
+
+@Def "body" {
+    element ~ "body" <> $
+}
+
+@Def "h1" {
+    element ~ "h1" <> $
 }
 
 @Def "element" {
