@@ -1,41 +1,37 @@
-make_page ~ "From Root"
+make_page` "From Root"
 
 @Method "GET" {
-    make_page ~ "From GET"
+    make_page` "From GET"
 }
 
 @Method "POST" {
-    make_page ~ "From POST"
+    make_page` "From POST"
 }
 
 @Method "PATCH" {
-    make_page ~ "From PATCH"
+    make_page` "From PATCH"
 }
 
 @Method "DELETE" {
-    make_page ~ "From DELETE"
+    make_page` "From DELETE"
 }
 
 @Def "make_page" {
-    html ~ (
-        body ~ (
-            h1 ~ (
-                text ~ ($ ?> $ |> "Hello, Web!")
-            )
-        )
-    )
+    html`
+        body`
+            h1` text` ($ ?> $ |> "Hello, Web!")
 }
 
 @Def "html" {
-    element ~ "html" <> $
+    element` "html" <> $
 }
 
 @Def "body" {
-    element ~ "body" <> $
+    element` "body" <> $
 }
 
 @Def "h1" {
-    element ~ "h1" <> $
+    element` "h1" <> $
 }
 
 @Def "element" {
