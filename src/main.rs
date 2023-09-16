@@ -8,25 +8,28 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::Request;
 use axum::response::Response;
-use axum::{routing::get, Router};
 use axum::routing::any;
+use axum::Router;
 use clap::Parser;
 use hyper::StatusCode;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use serde::Deserialize;
 
 use garnish_annotations_collector::{Collector, Sink, TokenBlock};
 use garnish_data::SimpleRuntimeData;
-use garnish_lang_compiler::{build_with_data, lex, parse, LexerToken, TokenType};
+use garnish_lang_compiler::{
+    build_with_data, parse, InstructionMetadata, LexerToken, ParseResult, TokenType,
+};
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
 use garnish_traits::{
     EmptyContext, ExpressionDataType, GarnishLangRuntimeData, GarnishLangRuntimeState,
     GarnishRuntime,
 };
-use hypertext_garnish::Node;
+use garnish_utils::{create_execution_dump, format_build_info, format_runtime, BuildMetadata};
+use hypertext_garnish::{Node, RuleSet};
 use serde_garnish::GarnishDataDeserializer;
 
-use crate::args::ServerArgs;
+use crate::args::{ServerArgs, ServerSubCommand};
 use crate::context::WebContext;
 
 mod args;
@@ -38,7 +41,7 @@ pub const INCLUDE_PATTERN_DEFAULT: &str = "**/*.garnish";
 struct SharedState {
     base_runtime: SimpleGarnishRuntime<SimpleRuntimeData>,
     context: WebContext,
-    route_mapping: HashMap<String, usize>,
+    route_mapping: HashMap<String, RouteInfo>,
 }
 
 #[tokio::main]
@@ -59,7 +62,7 @@ async fn main() -> Result<(), String> {
 
     let serve_path_str = match serve_path.to_str() {
         None => Err(format!(
-            "Could not covert serve path to str. Path: {:?}",
+            "Could not covert serve path to string. Path: {:?}",
             serve_path
         ))?,
         Some(s) => s.to_string(),
@@ -71,7 +74,7 @@ async fn main() -> Result<(), String> {
 
     let glob_pattern = match serve_path.to_str() {
         None => Err(format!(
-            "Could not covert serve path to set. Path: {:?}",
+            "Could not covert match pattern string. Path: {:?}",
             serve_path
         ))?,
         Some(s) => s,
@@ -91,24 +94,111 @@ async fn main() -> Result<(), String> {
         .map(|g| g.unwrap())
         .collect::<Vec<PathBuf>>();
 
-    let (route_mapping, runtime, context) = create_runtime(paths, serve_path_str.as_str())?;
-    let state = Arc::new(SharedState {
-        route_mapping,
-        base_runtime: runtime,
-        context,
-    });
+    let (route_mapping, mut runtime, mut context) = create_runtime(paths, serve_path_str.as_str())?;
 
-    // build our application with a single route
-    let app = Router::new()
-        .route("/", any(handler))
-        .route("/*path", any(handler))
-        .with_state(state);
+    match args.command {
+        ServerSubCommand::Serve => {
+            let state = Arc::new(SharedState {
+                route_mapping,
+                base_runtime: runtime,
+                context,
+            });
 
-    // run it with hyper on localhost:3000
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+            // build our application with a single route
+            let app = Router::new()
+                .route("/", any(handler))
+                .route("/*path", any(handler))
+                .with_state(state);
+
+            // run it with hyper on localhost:3000
+            axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+                .serve(app.into_make_service())
+                .await
+                .unwrap();
+        }
+        ServerSubCommand::Dump => {
+            let metadata_output = context
+                .metadata()
+                .iter()
+                .map(|meta| (meta.get_name().clone(), format_build_info(meta)))
+                .collect::<Vec<(String, String)>>();
+
+            let runtime_output = format_runtime(runtime.get_data(), &context, context.metadata());
+
+            match args.route {
+                None => (),
+                Some(route) => match route_mapping.get(&route) {
+                    None => debug!("Route {:?} not found", route),
+                    Some(info) => {
+                        match runtime.get_data_mut().set_instruction_cursor(info.execution_start) {
+                            Ok(_) => debug!("Set instruction cursor to {}", info.execution_start),
+                            Err(e) => error!("Failed to set instruction cursor. Reason: {}", e),
+                        }
+                    }
+                },
+            }
+
+            let execution_output = create_execution_dump(&mut runtime, &mut context);
+
+            match args.output_path {
+                None => {
+                    for o in metadata_output {
+                        println!("{}", o.1);
+                    }
+
+                    println!("{}", runtime_output);
+
+                    println!("{}", execution_output);
+                }
+                Some(out_path) => {
+                    for (name, text) in metadata_output {
+                        let mut path = out_path.clone();
+                        path.push(format!("{}.txt", name.replace("/", "_")));
+
+                        match fs::write(&path, text) {
+                            Ok(_) => debug!(
+                                "Successfully wrote build metadata dump to {}",
+                                path.to_string_lossy().to_string()
+                            ),
+                            Err(e) => error!(
+                                "Failed to write build metadata dump to {}. Reason: {}",
+                                path.to_string_lossy().to_string(),
+                                e
+                            ),
+                        }
+                    }
+
+                    let mut runtime_path = out_path.clone();
+                    runtime_path.push("runtime.txt");
+                    match fs::write(&runtime_path, runtime_output) {
+                        Ok(_) => debug!(
+                            "Successfully wrote runtime dump to {}",
+                            runtime_path.to_string_lossy().to_string()
+                        ),
+                        Err(e) => error!(
+                            "Failed to write runtime dump to {}. Reason: {}",
+                            runtime_path.to_string_lossy().to_string(),
+                            e
+                        ),
+                    }
+
+                    let mut execution_path = out_path.clone();
+                    execution_path.push("execution.txt");
+                    match fs::write(&execution_path, execution_output) {
+                        Ok(_) => debug!(
+                            "Successfully wrote execution dump to {}",
+                            execution_path.to_string_lossy().to_string()
+                        ),
+                        Err(e) => error!(
+                            "Failed to write execution dump to {}. Reason: {}",
+                            execution_path.to_string_lossy().to_string(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -147,8 +237,11 @@ async fn handler(
                 .body(String::new())
                 .unwrap()
         }
-        Some(start) => {
-            match runtime.get_data_mut().set_instruction_cursor(*start) {
+        Some(info) => {
+            match runtime
+                .get_data_mut()
+                .set_instruction_cursor(info.execution_start)
+            {
                 Err(e) => {
                     error!("Failed to set instructor cursor: {:?}", e);
                     return Response::builder()
@@ -176,27 +269,62 @@ async fn handler(
             }
 
             debug!("Result: {}", runtime.get_data().display_current_value());
-            let mut deserializer = GarnishDataDeserializer::new(runtime.get_data_mut());
-            let result = match Node::deserialize(&mut deserializer) {
-                Err(e) => {
-                    error!(
-                        "Failed to deserialize garnish data to HTML: {:?}{:?}",
-                        e.message(),
-                        e
-                    );
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(String::new())
-                        .unwrap();
-                }
-                Ok(n) => n,
-            };
 
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "text/html")
-                .body(result.to_string())
+                .body(current_value_to_string(
+                    runtime.get_data_mut(),
+                    info.file_type,
+                ))
                 .unwrap()
+        }
+    }
+}
+
+fn current_value_to_string(data: &mut SimpleRuntimeData, file_type: FileType) -> String {
+    match file_type {
+        FileType::HTML => deserialize_current_value::<Node>(data),
+        FileType::CSS => deserialize_current_value::<RuleSet>(data),
+    }
+}
+
+fn deserialize_current_value<'de, T: Deserialize<'de> + ToString>(
+    data: &'de mut SimpleRuntimeData,
+) -> String {
+    let mut deserializer = GarnishDataDeserializer::new(data);
+    match T::deserialize(&mut deserializer) {
+        Err(e) => {
+            error!(
+                "Failed to deserialize garnish data to HTML: {:?}{:?}",
+                e.message(),
+                e
+            );
+            String::new()
+        }
+        Ok(n) => n.to_string(),
+    }
+}
+
+#[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Debug)]
+enum FileType {
+    HTML,
+    CSS,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+struct RouteInfo {
+    route: String,
+    file_type: FileType,
+    execution_start: usize,
+}
+
+impl RouteInfo {
+    pub fn new<T: Into<String>>(route: T, file_type: FileType, execution_start: usize) -> Self {
+        Self {
+            route: route.into(),
+            file_type,
+            execution_start,
         }
     }
 }
@@ -206,7 +334,7 @@ fn create_runtime(
     base_path: &str,
 ) -> Result<
     (
-        HashMap<String, usize>,
+        HashMap<String, RouteInfo>,
         SimpleGarnishRuntime<SimpleRuntimeData>,
         WebContext,
     ),
@@ -219,9 +347,18 @@ fn create_runtime(
     let mut route_to_expression = HashMap::new();
 
     for path in paths {
-        let route = path
+        let (route, file_type) = path
             .strip_prefix(base_path)
             .and_then(|s| Ok(s.to_string_lossy().replace(".garnish", "")))
+            .and_then(|s| {
+                Ok(if s.ends_with(".html") {
+                    (s.replace(".html", ""), FileType::HTML)
+                } else if s.ends_with(".css") {
+                    (s.replace(".css", ""), FileType::CSS)
+                } else {
+                    (s, FileType::HTML)
+                })
+            })
             .or_else(|e| Err(e.to_string()))?;
 
         debug!("Compiling file: {:?}", path.to_string_lossy().to_string());
@@ -243,28 +380,42 @@ fn create_runtime(
             .into_iter()
             .partition(|b| b.annotation_text() == &"@Method".to_string());
 
-        handle_method_annotations(
+        let mut method_metadata = handle_method_annotations(
             method_blocks,
             &mut runtime,
+            &mut context,
             &path,
             &route,
+            file_type,
             &mut route_to_expression,
         )?;
-        handle_def_annotations(def_blocks, &mut runtime, &mut context, &path)?;
+
+        context.metadata_mut().append(&mut method_metadata);
+
+        let mut def_metadata =
+            handle_def_annotations(def_blocks, &mut runtime, &mut context, &path)?;
+
+        context.metadata_mut().append(&mut def_metadata);
 
         let root_tokens = root_blocks
             .into_iter()
             .flat_map(|b| b.tokens_owned())
             .collect::<Vec<LexerToken>>();
 
-        let parsed = parse(root_tokens)?;
+        let source = root_tokens
+            .iter()
+            .map(|token| token.get_text().clone())
+            .collect::<Vec<String>>()
+            .join("");
+
+        let parsed = parse(&root_tokens)?;
         if parsed.get_nodes().is_empty() {
             debug!("No root script found in file {:?}. Skipping.", &path);
             continue;
         }
 
         let index = runtime.get_data().get_jump_table_len();
-        build_with_data(
+        let instruction_data = build_with_data(
             parsed.get_root(),
             parsed.get_nodes().clone(),
             runtime.get_data_mut(),
@@ -274,8 +425,23 @@ fn create_runtime(
             None => Err(format!("No jump point found after building {:?}", &path))?,
         };
 
+        let root_metadata = BuildMetadata::new(
+            format!("{}", path.to_string_lossy().to_string()),
+            source,
+            execution_start,
+            root_tokens,
+            parsed,
+            instruction_data,
+        );
+
+        context.metadata_mut().push(root_metadata);
+
         info!("Registering route: {}", route);
-        route_to_expression.insert(route, execution_start);
+        route_to_expression.insert(
+            route.clone(),
+            RouteInfo::new(route.clone(), file_type, execution_start),
+        );
+        context.insert_expression(route.clone(), index)
     }
 
     Ok((route_to_expression, runtime, context))
@@ -286,57 +452,101 @@ fn handle_def_annotations(
     runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
     context: &mut WebContext,
     path: &PathBuf,
-) -> Result<(), String> {
+) -> Result<Vec<BuildMetadata<SimpleRuntimeData>>, String> {
+    let mut builds = vec![];
+
     for def in blocks {
-        let (name, start) = match build_and_get_parameters(def.tokens_owned(), runtime, path) {
-            Err(s) => {
-                error!("{}", s);
-                continue;
-            },
-            Ok((n, s)) => (n, s),
-        };
+        let source = def
+            .tokens()
+            .iter()
+            .map(|token| token.get_text().clone())
+            .collect::<Vec<String>>()
+            .join("");
+
+        let (parsed, instruction_data, name, start) =
+            match build_and_get_parameters(def.tokens(), runtime, path) {
+                Err(s) => {
+                    error!("{}", s);
+                    continue;
+                }
+                Ok(v) => v,
+            };
+
+        builds.push(BuildMetadata::new(
+            format!("{} -> {}", path.to_string_lossy().to_string(), name.clone()),
+            source,
+            start,
+            def.tokens_owned(),
+            parsed,
+            instruction_data,
+        ));
 
         debug!("Found method: {}", name);
         context.insert_expression(name, start);
     }
 
-    Ok(())
+    Ok(builds)
 }
 
 fn handle_method_annotations(
     blocks: Vec<TokenBlock>,
     runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    context: &mut WebContext,
     path: &PathBuf,
     route: &String,
-    route_to_expression: &mut HashMap<String, usize>,
-) -> Result<(), String> {
+    file_type: FileType,
+    route_to_expression: &mut HashMap<String, RouteInfo>,
+) -> Result<Vec<BuildMetadata<SimpleRuntimeData>>, String> {
+    let mut builds = vec![];
+
     for method in blocks {
-        let (name, start) = match build_and_get_parameters(method.tokens_owned(), runtime, path) {
-            Err(_) => continue,
-            Ok((n, s)) => (n, s),
-        };
+        let source = method
+            .tokens()
+            .iter()
+            .map(|token| token.get_text().clone())
+            .collect::<Vec<String>>()
+            .join("");
+        let (parsed, instruction_data, name, jump_index) =
+            match build_and_get_parameters(method.tokens(), runtime, path) {
+                Err(_) => continue,
+                Ok(v) => v,
+            };
 
         // http method expressions use direct jump point instead of jump table reference that is stored in the Expression data type
-        let start = match runtime.get_data().get_jump_point(start) {
+        let start = match runtime.get_data().get_jump_point(jump_index) {
             None => {
-                error!("Jump table reference not found. Searching for {}", start);
+                error!(
+                    "Jump table reference not found. Searching for {}",
+                    jump_index
+                );
                 return Err("Expression value not found in jump table".into());
             }
             Some(s) => s,
         };
 
+        builds.push(BuildMetadata::new(
+            format!("{} -> {}", path.to_string_lossy().to_string(), name.clone()),
+            source,
+            start,
+            method.tokens_owned(),
+            parsed,
+            instruction_data,
+        ));
+
         info!("Registering route: {}@{}", name, route);
-        route_to_expression.insert(format!("{}@{}", name, route), start);
+        let route = format!("{}@{}", name, route);
+        route_to_expression.insert(route.clone(), RouteInfo::new(&route, file_type, start));
+        context.insert_expression(route.clone(), jump_index);
     }
 
-    Ok(())
+    Ok(builds)
 }
 
 fn build_and_get_parameters(
-    tokens: Vec<LexerToken>,
+    tokens: &Vec<LexerToken>,
     runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
     path: &PathBuf,
-) -> Result<(String, usize), String> {
+) -> Result<(ParseResult, Vec<InstructionMetadata>, String, usize), String> {
     let parsed = parse(tokens)?;
     if parsed.get_nodes().is_empty() {
         warn!("Empty method annotation in {:?}", &path);
@@ -344,7 +554,7 @@ fn build_and_get_parameters(
     }
 
     let index = runtime.get_data().get_jump_table_len();
-    build_with_data(
+    let instruction_data = build_with_data(
         parsed.get_root(),
         parsed.get_nodes().clone(),
         runtime.get_data_mut(),
@@ -390,7 +600,10 @@ fn build_and_get_parameters(
         Some(v) => v,
     };
 
-    get_name_expression_annotation_parameters(runtime, value_ref).or(Err("".into()))
+    let (name, start) =
+        get_name_expression_annotation_parameters(runtime, value_ref).or(Err(String::new()))?;
+
+    Ok((parsed, instruction_data, name, start))
 }
 
 fn get_name_expression_annotation_parameters(
@@ -398,7 +611,7 @@ fn get_name_expression_annotation_parameters(
     value_ref: usize,
 ) -> Result<(String, usize), ()> {
     match runtime.get_data().get_data_type(value_ref) {
-        Err(e) => {
+        Err(_) => {
             error!("Failed to retrieve value data type after annotation execution.");
             Err(())
         }
@@ -414,14 +627,14 @@ fn get_name_expression_annotation_parameters(
                         return Err(());
                     }
                     Ok(v) => match runtime.get_data().get_data_type(v) {
-                        Err(e) => {
+                        Err(_) => {
                             error!("Failed to retrieve value data type for annotation list value.");
                             return Err(());
                         }
                         Ok(t) => match t {
                             ExpressionDataType::Symbol => {
                                 match runtime.get_data().get_symbol(v) {
-                                    Err(e) => {
+                                    Err(_) => {
                                         error!("No data found for annotation list value item 0");
                                         return Err(());
                                     }
@@ -449,7 +662,7 @@ fn get_name_expression_annotation_parameters(
                                     },
                                 }
                             }
-                            t => {
+                            _ => {
                                 error!("Expected Character List or Symbol type as first parameter in annotation list value");
                                 return Err(());
                             }
@@ -466,21 +679,21 @@ fn get_name_expression_annotation_parameters(
                         return Err(());
                     }
                     Ok(v) => match runtime.get_data().get_data_type(v) {
-                        Err(e) => {
+                        Err(_) => {
                             error!("Failed to retrieve value data type for annotation list value.");
                             return Err(());
                         }
                         Ok(t) => match t {
                             ExpressionDataType::Expression => {
                                 match runtime.get_data().get_expression(v) {
-                                    Err(e) => {
+                                    Err(_) => {
                                         error!("No data found for annotation list value item 0");
                                         return Err(());
                                     }
                                     Ok(s) => s,
                                 }
                             }
-                            t => {
+                            _ => {
                                 error!("Expected Expression type as second parameter in annotation list value");
                                 return Err(());
                             }
