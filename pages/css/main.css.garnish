@@ -9,10 +9,10 @@ tag` "body"
 
 @Def "declarations_from" {
     ;declarations = ( $ 0 (,) ~> {
-        $.1 < $.0.| ^~ $.0, $.1 + 1, $.2 <> ( $.0 ~ $.1 ~> {
+        $.1 < $.0.| ^~ ($.0, $.1 + 1, $.2 <> ( $.0 ~ $.1 ~> {
                 ;property = _.$
                 ;value = ( $._ #= #"" ?> ( ;DeclarationValue::Basic $._ ) |> $ )
-            })
+            }))
 
         $.2
     })
