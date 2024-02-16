@@ -370,7 +370,7 @@ fn create_runtime(
             Sink::new("@Def").until_token(TokenType::Subexpression),
         ]);
 
-        let blocks: Vec<TokenBlock> = collector.collect_tokens(&file_text)?;
+        let blocks: Vec<TokenBlock> = collector.collect_tokens_from_input(&file_text)?;
 
         let (root_blocks, annotation_blocks): (Vec<TokenBlock>, Vec<TokenBlock>) = blocks
             .into_iter()
