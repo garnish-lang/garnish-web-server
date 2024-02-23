@@ -16,12 +16,12 @@ use log::{debug, error, info, warn};
 use serde::Deserialize;
 
 use garnish_annotations_collector::{Collector, Sink, TokenBlock};
-use garnish_data::SimpleRuntimeData;
+use garnish_lang_simple_data::SimpleRuntimeData;
 use garnish_lang_compiler::{
     build_with_data, parse, InstructionMetadata, LexerToken, ParseResult, TokenType,
 };
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
-use garnish_traits::{
+use garnish_lang_traits::{
     EmptyContext, ExpressionDataType, GarnishLangRuntimeData, GarnishLangRuntimeState,
     GarnishRuntime,
 };
