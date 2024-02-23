@@ -292,7 +292,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
- "garnish_annotations_collector",
+ "garnish_lang_annotations_collector",
  "garnish_lang_compiler",
  "garnish_lang_runtime",
  "garnish_lang_simple_data",
@@ -310,8 +310,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "garnish_annotations_collector"
-version = "0.1.0"
+name = "garnish_lang_annotations_collector"
+version = "0.2.0"
 dependencies = [
  "garnish_lang_compiler",
  "garnish_lang_traits",
@@ -321,8 +321,6 @@ dependencies = [
 name = "garnish_lang_compiler"
 version = "0.0.2-alpha"
 dependencies = [
- "garnish_lang_runtime",
- "garnish_lang_simple_data",
  "garnish_lang_traits",
  "log",
 ]
