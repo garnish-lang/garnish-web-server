@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_compiler"
-version = "0.1.0"
+version = "0.0.2-alpha"
 dependencies = [
  "garnish_lang_runtime",
  "garnish_lang_simple_data",
@@ -329,7 +329,7 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_runtime"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "garnish_lang_traits",
  "log",
@@ -337,14 +337,14 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_simple_data"
-version = "0.1.0"
+version = "0.0.2-alpha"
 dependencies = [
  "garnish_lang_traits",
 ]
 
 [[package]]
 name = "garnish_lang_traits"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 
 [[package]]
 name = "garnish_utils"
