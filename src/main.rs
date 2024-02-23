@@ -25,7 +25,7 @@ use garnish_lang_traits::{
     EmptyContext, ExpressionDataType, GarnishLangRuntimeData, GarnishLangRuntimeState,
     GarnishRuntime,
 };
-use garnish_utils::{create_execution_dump, format_build_info, format_runtime, BuildMetadata};
+use garnish_lang_utilities::{create_execution_dump, format_build_info, format_runtime, BuildMetadata};
 use hypertext_garnish::{Node, RuleSet};
 use serde_garnish::GarnishDataDeserializer;
 

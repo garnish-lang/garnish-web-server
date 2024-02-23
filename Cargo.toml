@@ -17,7 +17,7 @@ clap = { version = "4.2.7", features = ["derive", "env"] }
 serde = { version = "1.0.147", features = ["derive"] }
 hypertext_garnish = { path = "../hypertext-garnish"}
 garnish_lang_annotations_collector = { path = "../garnish-annotations-collector" }
-garnish_utils = { path = "../garnish-utils"}
+garnish_lang_utilities = { path = "../garnish-utils"}
 serde_garnish = { path = "../serde-garnish" }
 garnish_lang_runtime = { path = "../garnish-core/runtime"}
 garnish_lang_compiler = { path = "../garnish-core/compiler"}

@@ -1,6 +1,6 @@
 use garnish_lang_simple_data::{DataError, SimpleRuntimeData};
 use garnish_lang_traits::{GarnishLangRuntimeContext, GarnishLangRuntimeData, RuntimeError};
-use garnish_utils::{BuildMetadata, DataInfoProvider};
+use garnish_lang_utilities::{BuildMetadata, DataInfoProvider};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

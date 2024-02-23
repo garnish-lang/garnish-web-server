@@ -297,7 +297,7 @@ dependencies = [
  "garnish_lang_runtime",
  "garnish_lang_simple_data",
  "garnish_lang_traits",
- "garnish_utils",
+ "garnish_lang_utilities",
  "glob",
  "hyper 1.0.0-rc.3",
  "hypertext_garnish",
@@ -345,7 +345,7 @@ name = "garnish_lang_traits"
 version = "0.0.2-alpha"
 
 [[package]]
-name = "garnish_utils"
+name = "garnish_lang_utilities"
 version = "0.1.0"
 dependencies = [
  "garnish_lang_compiler",
