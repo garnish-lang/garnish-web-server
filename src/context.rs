@@ -1,12 +1,12 @@
-use garnish_lang_simple_data::{DataError, SimpleRuntimeData};
-use garnish_lang_traits::{GarnishLangRuntimeContext, GarnishLangRuntimeData, RuntimeError};
+use garnish_lang_simple_data::{DataError, SimpleGarnishData};
+use garnish_lang_traits::{GarnishContext, GarnishData, RuntimeError};
 use garnish_lang_utilities::{BuildMetadata, DataInfoProvider};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct WebContext {
     expression_map: HashMap<String, usize>,
-    build_metadata: Vec<BuildMetadata<SimpleRuntimeData>>,
+    build_metadata: Vec<BuildMetadata<SimpleGarnishData>>,
 }
 
 impl WebContext {
@@ -21,20 +21,20 @@ impl WebContext {
         self.expression_map.insert(name.into(), table_index);
     }
 
-    pub fn metadata(&self) -> &Vec<BuildMetadata<SimpleRuntimeData>> {
+    pub fn metadata(&self) -> &Vec<BuildMetadata<SimpleGarnishData>> {
         &self.build_metadata
     }
 
-    pub fn metadata_mut(&mut self) -> &mut Vec<BuildMetadata<SimpleRuntimeData>> {
+    pub fn metadata_mut(&mut self) -> &mut Vec<BuildMetadata<SimpleGarnishData>> {
         &mut self.build_metadata
     }
 }
 
-impl GarnishLangRuntimeContext<SimpleRuntimeData> for WebContext {
+impl GarnishContext<SimpleGarnishData> for WebContext {
     fn resolve(
         &mut self,
         symbol: u64,
-        data: &mut SimpleRuntimeData,
+        data: &mut SimpleGarnishData,
     ) -> Result<bool, RuntimeError<DataError>> {
         match data.get_symbols().get(&symbol) {
             None => Ok(false),
@@ -50,12 +50,12 @@ impl GarnishLangRuntimeContext<SimpleRuntimeData> for WebContext {
     }
 }
 
-impl DataInfoProvider<SimpleRuntimeData> for WebContext {
-    fn get_symbol_name(&self, sym: u64, data: &SimpleRuntimeData) -> Option<String> {
+impl DataInfoProvider<SimpleGarnishData> for WebContext {
+    fn get_symbol_name(&self, sym: u64, data: &SimpleGarnishData) -> Option<String> {
         data.get_data().get_symbol(sym).cloned()
     }
 
-    fn get_address_name(&self, addr: usize, data: &SimpleRuntimeData) -> Option<String> {
+    fn get_address_name(&self, addr: usize, data: &SimpleGarnishData) -> Option<String> {
         self.expression_map
             .iter()
             .map(|(k, v)| (k, data.get_jump_point(*v)))
@@ -68,7 +68,7 @@ impl DataInfoProvider<SimpleRuntimeData> for WebContext {
     fn format_symbol_data(
         &self,
         sym: u64,
-        data: &SimpleRuntimeData,
+        data: &SimpleGarnishData,
     ) -> Option<String> {
         data.get_data().get_symbol(sym).and_then(|sym_name| {
             self.expression_map

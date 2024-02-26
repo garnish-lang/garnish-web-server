@@ -16,13 +16,13 @@ use log::{debug, error, info, warn};
 use serde::Deserialize;
 
 use garnish_lang_annotations_collector::{Collector, Sink, TokenBlock};
-use garnish_lang_simple_data::SimpleRuntimeData;
+use garnish_lang_simple_data::SimpleGarnishData;
 use garnish_lang_compiler::{
     build_with_data, parse, InstructionMetadata, LexerToken, ParseResult, TokenType,
 };
 use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
 use garnish_lang_traits::{
-    EmptyContext, ExpressionDataType, GarnishLangRuntimeData, GarnishLangRuntimeState,
+    EmptyContext, GarnishDataType, GarnishData, GarnishLangRuntimeState,
     GarnishRuntime,
 };
 use garnish_lang_utilities::{create_execution_dump, format_build_info, format_runtime, BuildMetadata};
@@ -39,7 +39,7 @@ pub const INCLUDE_PATTERN_DEFAULT: &str = "**/*.garnish";
 
 #[derive(Clone)]
 struct SharedState {
-    base_runtime: SimpleGarnishRuntime<SimpleRuntimeData>,
+    base_runtime: SimpleGarnishRuntime<SimpleGarnishData>,
     context: WebContext,
     route_mapping: HashMap<String, RouteInfo>,
 }
@@ -282,7 +282,7 @@ async fn handler(
     }
 }
 
-fn current_value_to_string(data: &mut SimpleRuntimeData, file_type: FileType) -> String {
+fn current_value_to_string(data: &mut SimpleGarnishData, file_type: FileType) -> String {
     match file_type {
         FileType::HTML => deserialize_current_value::<Node>(data),
         FileType::CSS => deserialize_current_value::<RuleSet>(data),
@@ -290,7 +290,7 @@ fn current_value_to_string(data: &mut SimpleRuntimeData, file_type: FileType) ->
 }
 
 fn deserialize_current_value<'de, T: Deserialize<'de> + ToString>(
-    data: &'de mut SimpleRuntimeData,
+    data: &'de mut SimpleGarnishData,
 ) -> String {
     let mut deserializer = GarnishDataDeserializer::new(data);
     match T::deserialize(&mut deserializer) {
@@ -335,12 +335,12 @@ fn create_runtime(
 ) -> Result<
     (
         HashMap<String, RouteInfo>,
-        SimpleGarnishRuntime<SimpleRuntimeData>,
+        SimpleGarnishRuntime<SimpleGarnishData>,
         WebContext,
     ),
     String,
 > {
-    let mut runtime = SimpleGarnishRuntime::new(SimpleRuntimeData::new());
+    let mut runtime = SimpleGarnishRuntime::new(SimpleGarnishData::new());
     let mut context = WebContext::new();
 
     // maps expected http route to index of expression that will be executed when that route is requested
@@ -449,10 +449,10 @@ fn create_runtime(
 
 fn handle_def_annotations(
     blocks: Vec<TokenBlock>,
-    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    runtime: &mut SimpleGarnishRuntime<SimpleGarnishData>,
     context: &mut WebContext,
     path: &PathBuf,
-) -> Result<Vec<BuildMetadata<SimpleRuntimeData>>, String> {
+) -> Result<Vec<BuildMetadata<SimpleGarnishData>>, String> {
     let mut builds = vec![];
 
     for def in blocks {
@@ -490,13 +490,13 @@ fn handle_def_annotations(
 
 fn handle_method_annotations(
     blocks: Vec<TokenBlock>,
-    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    runtime: &mut SimpleGarnishRuntime<SimpleGarnishData>,
     context: &mut WebContext,
     path: &PathBuf,
     route: &String,
     file_type: FileType,
     route_to_expression: &mut HashMap<String, RouteInfo>,
-) -> Result<Vec<BuildMetadata<SimpleRuntimeData>>, String> {
+) -> Result<Vec<BuildMetadata<SimpleGarnishData>>, String> {
     let mut builds = vec![];
 
     for method in blocks {
@@ -544,7 +544,7 @@ fn handle_method_annotations(
 
 fn build_and_get_parameters(
     tokens: &Vec<LexerToken>,
-    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    runtime: &mut SimpleGarnishRuntime<SimpleGarnishData>,
     path: &PathBuf,
 ) -> Result<(ParseResult, Vec<InstructionMetadata>, String, usize), String> {
     let parsed = parse(tokens)?;
@@ -607,7 +607,7 @@ fn build_and_get_parameters(
 }
 
 fn get_name_expression_annotation_parameters(
-    runtime: &mut SimpleGarnishRuntime<SimpleRuntimeData>,
+    runtime: &mut SimpleGarnishRuntime<SimpleGarnishData>,
     value_ref: usize,
 ) -> Result<(String, usize), ()> {
     match runtime.get_data().get_data_type(value_ref) {
@@ -616,7 +616,7 @@ fn get_name_expression_annotation_parameters(
             Err(())
         }
         Ok(t) => match t {
-            ExpressionDataType::List => {
+            GarnishDataType::List => {
                 // check for 2 values in list
                 let method_name = match runtime.get_data().get_list_item(value_ref, 0.into()) {
                     Err(e) => {
@@ -632,7 +632,7 @@ fn get_name_expression_annotation_parameters(
                             return Err(());
                         }
                         Ok(t) => match t {
-                            ExpressionDataType::Symbol => {
+                            GarnishDataType::Symbol => {
                                 match runtime.get_data().get_symbol(v) {
                                     Err(_) => {
                                         error!("No data found for annotation list value item 0");
@@ -647,7 +647,7 @@ fn get_name_expression_annotation_parameters(
                                     },
                                 }
                             }
-                            ExpressionDataType::CharList => {
+                            GarnishDataType::CharList => {
                                 match runtime.get_data().get_data().get(v) {
                                     None => {
                                         error!("No data found for annotation list value item 0");
@@ -684,7 +684,7 @@ fn get_name_expression_annotation_parameters(
                             return Err(());
                         }
                         Ok(t) => match t {
-                            ExpressionDataType::Expression => {
+                            GarnishDataType::Expression => {
                                 match runtime.get_data().get_expression(v) {
                                     Err(_) => {
                                         error!("No data found for annotation list value item 0");
