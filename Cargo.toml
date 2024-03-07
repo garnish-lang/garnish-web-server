@@ -15,11 +15,8 @@ tower = "0.4.13"
 glob = "0.3.1"
 clap = { version = "4.2.7", features = ["derive", "env"] }
 serde = { version = "1.0.147", features = ["derive"] }
-hypertext_garnish = { path = "../hypertext-garnish"}
-garnish_lang_annotations_collector = { path = "../garnish-annotations-collector" }
-garnish_lang_utilities = { path = "../garnish-utils"}
-serde_garnish = { path = "../serde-garnish" }
-garnish_lang_runtime = { path = "../garnish-core/runtime"}
-garnish_lang_compiler = { path = "../garnish-core/compiler"}
-garnish_lang_simple_data = { path = "../garnish-core/data"}
-garnish_lang_traits = { path = "../garnish-core/traits"}
+hypertext_garnish = "0.2.0"
+garnish_lang_annotations_collector = "0.3.0"
+garnish_lang_utilities = "0.3.0"
+serde_garnish = "0.2.0"
+garnish_lang = "0.0.4-alpha"

@@ -15,17 +15,16 @@ use hyper::StatusCode;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 
-use garnish_lang_annotations_collector::{Collector, Sink, TokenBlock};
-use garnish_lang_simple_data::SimpleGarnishData;
-use garnish_lang_compiler::{
-    build_with_data, parse, InstructionMetadata, LexerToken, ParseResult, TokenType,
+use garnish_lang::compiler::{
+    build::build_with_data, build::InstructionMetadata, lex::LexerToken, lex::TokenType,
+    parse::parse, parse::ParseResult,
 };
-use garnish_lang_runtime::runtime_impls::SimpleGarnishRuntime;
-use garnish_lang_traits::{
-    EmptyContext, GarnishDataType, GarnishData, GarnishLangRuntimeState,
-    GarnishRuntime,
+use garnish_lang::simple::{SimpleGarnishData, SimpleGarnishRuntime, SimpleRuntimeState};
+use garnish_lang::{EmptyContext, GarnishData, GarnishDataType, GarnishRuntime};
+use garnish_lang_annotations_collector::{Collector, PartBehavior, PartParser, Sink, TokenBlock};
+use garnish_lang_utilities::{
+    create_execution_dump, format_build_info, format_runtime, BuildMetadata,
 };
-use garnish_lang_utilities::{create_execution_dump, format_build_info, format_runtime, BuildMetadata};
 use hypertext_garnish::{Node, RuleSet};
 use serde_garnish::GarnishDataDeserializer;
 
@@ -130,7 +129,10 @@ async fn main() -> Result<(), String> {
                 Some(route) => match route_mapping.get(&route) {
                     None => debug!("Route {:?} not found", route),
                     Some(info) => {
-                        match runtime.get_data_mut().set_instruction_cursor(info.execution_start) {
+                        match runtime
+                            .get_data_mut()
+                            .set_instruction_cursor(info.execution_start)
+                        {
                             Ok(_) => debug!("Set instruction cursor to {}", info.execution_start),
                             Err(e) => error!("Failed to set instruction cursor. Reason: {}", e),
                         }
@@ -262,8 +264,8 @@ async fn handler(
                             .unwrap();
                     }
                     Ok(data) => match data.get_state() {
-                        GarnishLangRuntimeState::Running => (),
-                        GarnishLangRuntimeState::End => break,
+                        SimpleRuntimeState::Running => (),
+                        SimpleRuntimeState::End => break,
                     },
                 }
             }
@@ -366,8 +368,12 @@ fn create_runtime(
         let file_text = fs::read_to_string(&path).or_else(|e| Err(e.to_string()))?;
 
         let collector: Collector = Collector::new(vec![
-            Sink::new("@Method").until_token(TokenType::Subexpression),
-            Sink::new("@Def").until_token(TokenType::Subexpression),
+            Sink::new("@Method").part(PartParser::new(PartBehavior::UntilToken(
+                TokenType::Subexpression,
+            ))),
+            Sink::new("@Def").part(PartParser::new(PartBehavior::UntilToken(
+                TokenType::Subexpression,
+            ))),
         ]);
 
         let blocks: Vec<TokenBlock> = collector.collect_tokens_from_input(&file_text)?;
@@ -586,8 +592,8 @@ fn build_and_get_parameters(
                 continue;
             }
             Ok(data) => match data.get_state() {
-                GarnishLangRuntimeState::Running => (),
-                GarnishLangRuntimeState::End => break,
+                SimpleRuntimeState::Running => (),
+                SimpleRuntimeState::End => break,
             },
         }
     }

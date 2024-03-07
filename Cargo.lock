@@ -292,11 +292,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "garnish_lang",
  "garnish_lang_annotations_collector",
- "garnish_lang_compiler",
- "garnish_lang_runtime",
- "garnish_lang_simple_data",
- "garnish_lang_traits",
  "garnish_lang_utilities",
  "glob",
  "hyper 1.0.0-rc.3",
@@ -310,8 +307,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "garnish_lang"
+version = "0.0.4-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ade77f917b35160b98235b84eee6d920aa90f9ea8e5a90d5a8df43bab3fbab6a"
+dependencies = [
+ "garnish_lang_compiler",
+ "garnish_lang_runtime",
+ "garnish_lang_simple_data",
+ "garnish_lang_traits",
+]
+
+[[package]]
 name = "garnish_lang_annotations_collector"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de5efa880e08025afb45693b6e41d8d357dadd2072bcaf2c91af827602225782"
 dependencies = [
  "garnish_lang_compiler",
  "garnish_lang_traits",
@@ -319,7 +330,9 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_compiler"
-version = "0.0.2-alpha"
+version = "0.0.4-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "934183e05d90caa90682587986f0f34ad3d3420c90c25ac3ab6e48eba92ee964"
 dependencies = [
  "garnish_lang_traits",
  "log",
@@ -327,7 +340,9 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_runtime"
-version = "0.0.2-alpha"
+version = "0.0.4-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9bf36f27cae9d706f97b7f26896ecd2347629873de1a0d4f21d5059c4fa4c8b"
 dependencies = [
  "garnish_lang_traits",
  "log",
@@ -335,18 +350,24 @@ dependencies = [
 
 [[package]]
 name = "garnish_lang_simple_data"
-version = "0.0.2-alpha"
+version = "0.0.4-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1d8ca6b76f9807923725ebd2b954868400c44f838faf7544c0ff81cbd7d292e"
 dependencies = [
  "garnish_lang_traits",
 ]
 
 [[package]]
 name = "garnish_lang_traits"
-version = "0.0.2-alpha"
+version = "0.0.4-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7dea2960e31af8624e65a21b79ccaf96c8882bd9c629d22ec48c1b17559f01b"
 
 [[package]]
 name = "garnish_lang_utilities"
-version = "0.1.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db253965fa645175a33e41bb3472efdfcc5938e9075debce69893e0779aa262d"
 dependencies = [
  "garnish_lang_compiler",
  "garnish_lang_traits",
@@ -504,12 +525,11 @@ dependencies = [
 
 [[package]]
 name = "hypertext_garnish"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4eaf5624169c1ef6a22cb39999e48c23eacc311dc4e3e311850b6cf257ad128"
 dependencies = [
- "garnish_lang_compiler",
- "garnish_lang_runtime",
- "garnish_lang_simple_data",
- "garnish_lang_traits",
+ "garnish_lang",
  "serde",
  "serde_garnish",
 ]
@@ -787,11 +807,10 @@ dependencies = [
 
 [[package]]
 name = "serde_garnish"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49789ca034b75293de9d5beb7b0817be48fabe820d361150dacf363c0dc3984c"
 dependencies = [
- "garnish_lang_compiler",
- "garnish_lang_runtime",
- "garnish_lang_simple_data",
  "garnish_lang_traits",
  "log",
  "serde",

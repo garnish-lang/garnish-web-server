@@ -1,5 +1,5 @@
-use garnish_lang_simple_data::{DataError, SimpleGarnishData};
-use garnish_lang_traits::{GarnishContext, GarnishData, RuntimeError};
+use garnish_lang::simple::{DataError, SimpleGarnishData};
+use garnish_lang::{GarnishContext, GarnishData, RuntimeError};
 use garnish_lang_utilities::{BuildMetadata, DataInfoProvider};
 use std::collections::HashMap;
 
